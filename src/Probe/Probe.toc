@@ -1,0 +1,9 @@
+## Interface: 20504
+## Title: Probe
+## Author: thot
+## Notes: Dev-only API surface verifier and live introspection. NEVER enable during a real run.
+## Version: 0.1.0
+## SavedVariables: ProbeDB
+
+Targets.lua
+Probe.lua

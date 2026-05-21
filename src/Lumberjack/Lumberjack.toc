@@ -1,0 +1,12 @@
+## Interface: 20505
+## Title: Lumberjack
+## Author: thot
+## Notes: High-resolution speedrun data capture (Forestry project)
+## Version: 1.0.0
+## SavedVariablesPerCharacter: LumberjackDB
+## SavedVariablesPerCharacter: LumberjackSettings
+## LumberjackHighwaterMark is intentionally NOT a SavedVariable — ingest appends it as a plain global
+## assignment to the SavedVariables file. WoW reads it on load (the SV file is just Lua) but won't
+## write it back on logout, so the marker can't be clobbered by an in-memory stale copy.
+
+Lumberjack.lua

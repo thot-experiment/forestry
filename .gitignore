@@ -1,0 +1,15 @@
+node_modules
+dev-config.ini
+dist
+.junk
+.claude
+v1_archive
+src/Lumberjack/archive/*
+src/Sawmill/archive/*
+docs/history/*                     
+deps/*
+*.exe
+*.dll
+*.db
+.state.json
+config.mjs

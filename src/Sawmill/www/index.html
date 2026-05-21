@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Forestry</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
+    <link rel="stylesheet" href="/app.css">
+    <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+    <!-- app.js MUST load before alpine so its alpine:init listener is registered
+         before Alpine's start() microtask fires. Don't add defer here. -->
+    <script type="module" src="/timeline.mjs"></script>
+    <script type="module" src="/poll_rows.mjs"></script>
+    <script type="module" src="/app.mjs"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+</head>
+<body x-data="snapshotApp" x-init="start()">
+<header x-show="!Object.values(expanded).some(v => v)">
+         <h1>Forestry</h1>
+       <div class="meta">
+         </div>
+     </header>
+
+    <section class="counts" x-show="loaded && !Object.values(expanded).some(v => v)">
+        <template x-for="(c, name) in snap.counts" :key="name">
+            <div class="count-tile">
+                <div class="count-name" x-text="name"></div>
+                <div class="count-rows" x-text="fmtNum(c.rows)"></div>
+                <div class="count-latest" x-text="c.latest ? fmtAgo(c.latest) : '—'"></div>
+            </div>
+        </template>
+    </section>
+
+ <section class="runs">
+        <h2>Characters <span class="dim" x-text="loaded ? `(${snap.runs.length})` : ''"></span></h2>
+        <template x-for="run in snap.runs" :key="run.key">
+            <div class="run-card" :class="{ expanded: expanded[run.key] }" :id="'run-card-' + run.key" x-show="expanded[run.key] || !Object.values(expanded).some(v => v)">
+                <div class="run-head" @click="expandRun(run.key)">
+                    <div class="run-name">
+                        <span class="char" x-text="run.character_name"></span>
+                        <span class="dim" x-text="`-${run.realm}`"></span>
+                        <span class="badge" x-text="run.class"></span>
+                        <span class="badge race" x-text="run.race"></span>
+                        <span class="badge faction" :class="run.faction?.toLowerCase()" x-text="run.faction"></span>
+                    </div>
+                    <div class="run-stats">
+                         <span>lvl <strong x-text="`${run.lvl_min ?? '?'}–${run.lvl_max ?? '?'}`"></strong></span>
+                         <span><strong x-text="run.session_count"></strong> sess</span>
+                         <span><strong x-text="fmtDuration(run.duration)"></strong> played</span>
+                         <span><strong x-text="fmtNum(run.poll_rows)"></strong> poll</span>
+                         <span><strong x-text="fmtNum(run.event_rows)"></strong> evt</span>
+                         <span><strong x-text="fmtNum(run.cleu_rows)"></strong> cleu</span>
+                         <span class="dim" x-text="`last seen ${fmtAgo(run.last_seen)}`"></span>
+                     </div>
+                     <div class="run-global-controls" @click.stop>
+                         <span class="meta-label">Sessions:</span>
+                         <select x-model="runLimit" class="run-limit-select" @change="onRunLimitChange()">
+                             <option :value="1">1</option>
+                             <option :value="2">2</option>
+                             <option :value="3">3</option>
+                             <option :value="4">4</option>
+                             <option :value="8">8</option>
+                             <option :value="16">16</option>
+                             <option :value="32">32</option>
+                             <option :value="64">64</option>
+                             <option value="all">all</option>
+                         </select>
+                     </div>
+                </div>
+
+                <div class="run-body" x-show="expanded[run.key]" x-transition>
+                    <div class="run-filters" x-show="runPolls[run.key] && !isAtMaxLevel(run.key)">
+                        <div class="filter-group">
+                            <div class="filter-label">
+                                <span>Level</span>
+                                <span class="filter-val">
+                                    <span x-text="effLvlMin(run.key)"></span>
+                                    <span class="dim">–</span>
+                                    <span x-text="effLvlMax(run.key)"></span>
+                                </span>
+                            </div>
+                            <div class="dual-range">
+                                <input type="range" class="lo" :min="runMinLvl(run.key)" :max="runMaxLvl(run.key)" step="1"
+                                       :value="effLvlMin(run.key)"
+                                       @input="onLvlMinChange(run.key, $event.target.value)">
+                                <input type="range" class="hi" :min="runMinLvl(run.key)" :max="runMaxLvl(run.key)" step="1"
+                                       :value="effLvlMax(run.key)"
+                                       @input="onLvlMaxChange(run.key, $event.target.value)">
+                            </div>
+                        </div>
+
+                        <div class="filter-group filter-group-narrow"
+                             x-show="['trapezoidal','boxcar'].includes(xpMode[run.key] ?? 'trapezoidal')">
+                            <div class="filter-label">
+                                <span>XP smooth</span>
+                                <span class="filter-val"><span x-text="Math.round((xpWindow[run.key] ?? 120) / 60)"></span>m</span>
+                            </div>
+                            <input type="range" min="60" max="3600" step="60"
+                                   :value="xpWindow[run.key] ?? 120"
+                                   @input.debounce.100ms="xpWindow[run.key] = Number($event.target.value); onXpWindowChange(run.key)">
+                        </div>
+                        <div class="filter-group filter-group-narrow">
+                            <div class="filter-label"><span>XP mode</span></div>
+                            <select class="run-limit-select" style="width:100%;font-size:11px;"
+                                    :value="xpMode[run.key] ?? 'trapezoidal'"
+                                    @change="xpMode[run.key] = $event.target.value; onXpModeChange(run.key)">
+                                <option value="trapezoidal">trapezoid</option>
+                                <option value="boxcar">boxcar</option>
+                                <option value="session">session avg</option>
+                                <option value="absolute">absolute</option>
+                            </select>
+                        </div>
+
+                    </div>
+                    <button class="filter-reset" @click="resetFilter(run.key)" x-show="isFilterActive(run.key)">reset filter</button>
+
+                    <div class="run-stats-panel" x-show="runPolls[run.key]?.stats">
+                        <template x-for="kv in statTiles(runPolls[run.key]?.stats, isAtMaxLevel(run.key))" :key="kv.label">
+                            <div class="stat-tile">
+                                <div class="stat-label" x-text="kv.label"></div>
+                                <div class="stat-value" x-text="kv.value"></div>
+                                <div class="stat-sub" x-text="kv.sub" x-show="kv.sub"></div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div class="timeline-section" x-show="runPolls[run.key]">
+                        <div class="timeline-head">Timeline <span class="dim">— wall-clock; drag/zoom natively via uPlot</span></div>
+                        <div class="timeline-host" :id="'timeline-' + run.key"></div>
+                        <div class="timeline-controls">
+                            <button class="filter-reset" @click="resetTimelineZoom(run.key)" x-show="timelineZoomed[run.key]">reset zoom</button>
+                        </div>
+                    </div>
+
+                    <details class="splits-details" x-show="runPolls[run.key]?.stats?.splits?.length && !isAtMaxLevel(run.key)">
+                        <summary>15-min splits (<span x-text="runPolls[run.key]?.stats?.splits?.length || 0"></span>)</summary>
+                        <div class="splits-table-wrap">
+                            <table class="splits-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>playtime</th>
+                                        <th class="num">xp</th>
+                                        <th class="num">xp/hr</th>
+                                        <th>lvl</th>
+                                        <th class="num">kills</th>
+                                        <th class="num">deaths</th>
+                                        <th class="num">qs in/acc</th>
+                                        <th class="num">distance</th>
+                                        <th>top zone</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="sp in runPolls[run.key]?.stats?.splits || []" :key="sp.idx">
+                                        <tr>
+                                            <td x-text="sp.idx + 1"></td>
+                                            <td x-text="fmtSplitRange(sp.pt_start, sp.pt_end)"></td>
+                                            <td class="num" x-text="fmtNum(sp.xp_gained)"></td>
+                                            <td class="num" x-text="fmtNum(Math.round(sp.xp_per_hour))"></td>
+                                            <td x-text="sp.lvl_start === sp.lvl_end ? sp.lvl_start : `${sp.lvl_start}→${sp.lvl_end}`"></td>
+                                            <td class="num" x-text="sp.kills"></td>
+                                            <td class="num" x-text="sp.deaths"></td>
+                                            <td class="num" x-text="`${sp.quests_turned_in}/${sp.quests_accepted}`"></td>
+                                            <td class="num" x-text="fmtDistance(sp.distance)"></td>
+                                            <td class="dim small" x-text="sp.top_zone || '—'"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+
+                    <div class="trajectory">
+                        <div class="trajectory-head">
+                            <h3>Trajectory <span class="dim" x-show="runPolls[run.key]"
+                                                  x-text="`(${runPolls[run.key]?.rows.length || 0} poll rows)`"></span></h3>
+                            <div class="trajectory-controls" x-show="runPolls[run.key]">
+                                <label x-show="!isAtMaxLevel(run.key)"><input type="checkbox" x-model="colorByLevel" @change="draw(run.key)"> color by level (instead of session)</label>
+                            </div>
+                        </div>
+                        <div x-show="!runPolls[run.key]" class="dim loading">loading trajectory…</div>
+                        <div class="zone-picker" x-show="runPolls[run.key]">
+                            <template x-for="z in runPolls[run.key]?.zones || []" :key="z.name">
+                                <button class="zone-btn"
+                                        :class="{ active: selectedZone[run.key] === z.name, world: z.name === '__world__' }"
+                                        @click="selectZone(run.key, z.name)">
+                                    <span x-text="z.label || z.name"></span>
+                                    <span class="dim" x-text="`(${fmtNum(z.count)})`"></span>
+                                </button>
+                            </template>
+                        </div>
+                        <div class="canvas-wrap" x-show="runPolls[run.key] && selectedZone[run.key]">
+                            <div class="canvas-fs-wrap">
+                                <canvas :id="'canvas-' + run.key" width="600" height="600"></canvas>
+                                <button class="canvas-fs-btn" title="Fullscreen"
+                                        @click="toggleCanvasFullscreen($event)">⛶</button>
+                            </div>
+                            <div class="legend">
+                                 <div class="legend-section">sessions</div>
+                                 <template x-for="s in (runPolls[run.key] && runPolls[run.key].legend ? [...runPolls[run.key].legend].reverse() : [])" :key="s.sid">
+                                     <div class="legend-item legend-session">
+                                         <span class="swatch" :style="'background: ' + s.color"></span>
+                                         <span class="legend-label" x-text="s.label"></span>
+                                         <span class="legend-substats" x-show="!isAtMaxLevel(run.key)">
+                                             <span x-text="fmtNum(s.xp_gained) + ' xp'"></span>
+                                             <span class="dim" x-text="' · ' + fmtNum(Math.round(s.xp_per_hour)) + '/hr'"></span>
+                                         </span>
+                                     </div>
+                                 </template>
+
+                                <div class="legend-section">markers</div>
+                                <div class="legend-item"><span class="swatch" style="background:gold"></span>quest turn-in (big) / accept (small)</div>
+                                <div class="legend-item"><span class="swatch" style="background:#ffd060"></span>objective tick (UI_INFO_MESSAGE)</div>
+                                <div class="legend-item"><span class="swatch" style="background:#ff5470"></span>kill credit (PARTY_KILL)</div>
+                                <div class="legend-item"><span class="swatch" style="background:#a4f0ff"></span>level up</div>
+                                <div class="legend-item"><span class="swatch" style="background:transparent;border:1.5px solid #fff"></span>death</div>
+                                <div class="legend-item"><span class="swatch" style="background:#555"></span>path while dead</div>
+                            </div>
+                            <div class="zone-stats-panel">
+                                 <div class="zone-stats-head" x-text="selectedZone[run.key] === '__world__' ? 'World (all zones)' : ('in ' + (selectedZone[run.key] || ''))"></div>
+                                 <div class="zone-stats-coord dim small" x-show="hoverPoint[run.key]" style="margin-bottom: 6px; font-family: monospace;">
+                                     Pos: <span x-text="fmtNum(hoverPoint[run.key]?.wx)"></span>, <span x-text="fmtNum(hoverPoint[run.key]?.wy)"></span>
+                                 </div>
+                                 <div class="zone-stats-grid">
+
+                                    <template x-for="kv in (runPolls[run.key] && runPolls[run.key].viewStatTiles) || []" :key="kv.label">
+                                        <div class="zone-stat">
+                                            <span class="zone-stat-label" x-text="kv.label"></span>
+                                            <span class="zone-stat-value" x-text="kv.value"></span>
+                                            <span class="zone-stat-sub" x-text="kv.sub || ''" x-show="kv.sub"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div class="zone-stats-spells" x-show="(runPolls[run.key] && runPolls[run.key].viewSpellCasts && runPolls[run.key].viewSpellCasts.length)">
+                                    <div class="legend-section">spells in zone</div>
+                                    <template x-for="s in (runPolls[run.key] && runPolls[run.key].viewSpellCasts) || []" :key="s.id">
+                                        <div class="spell-cast" :title="'spell ID ' + s.id">
+                                            <span class="spell-name" x-text="s.name || ('#' + s.id)"></span>
+                                            <span class="spell-rank" x-text="s.rank ? '(' + s.rank + ')' : ''"></span>
+                                            <span class="spell-count" x-text="'× ' + s.count"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                     <details class="sessions-details">
+                         <summary>Sessions (<span x-text="run.sessions.length"></span>)</summary>
+                         <div class="run-sessions-wrap">
+                             <div class="run-sessions">
+                                 <table>
+                                     <thead>
+                                         <tr>
+                                             <th>session</th>
+                                             <th>start</th>
+                                             <th>duration</th>
+                                             <th>lvl</th>
+                                             <th class="num" x-show="!isAtMaxLevel(run.key)">xp</th>
+                                             <th class="num" x-show="!isAtMaxLevel(run.key)">xp/hr</th>
+                                             <th class="num">kills</th>
+                                             <th class="num">deaths</th>
+                                             <th class="num">lvl-ups</th>
+                                             <th class="num">quests<br><span class="dim">in/acc</span></th>
+                                             <th class="num">casts</th>
+                                             <th class="num">jumps</th>
+                                             <th class="num">distance</th>
+                                             <th>top zones</th>
+                                             <th class="num">poll</th>
+                                             <th class="num">evt</th>
+                                             <th class="num">cleu</th>
+                                             <th class="dim">build</th>
+                                         </tr>
+                                     </thead>
+                                 <tbody>
+                                     <template x-for="s in (run.sessions ? [...run.sessions].reverse() : [])" :key="s.session_id">
+                                         <tr :class="s.session_id">
+                                             <td class="mono" x-text="prettySessionLabel(s.session_id)" :title="s.session_id"></td>
+                                             <td x-text="fmtDate(s.start_time)"></td>
+                                             <td x-text="fmtDuration(sessionStat(run.key, s.session_id, 'duration') ?? ((s.poll_end || 0) - (s.poll_start || 0)))"></td>
+                                             <td x-text="`${s.lvl_min ?? '?'}–${s.lvl_max ?? '?'}`"></td>
+                                             <td class="num" x-show="!isAtMaxLevel(run.key)" x-text="fmtNum(sessionStat(run.key, s.session_id, 'xp_gained'))"></td>
+                                             <td class="num" x-show="!isAtMaxLevel(run.key)" :style="'color: ' + getEfficiencyColor(sessionStat(run.key, s.session_id, 'xp_per_hour'))" x-text="fmtNum(Math.round(sessionStat(run.key, s.session_id, 'xp_per_hour') || 0))"></td>
+                                             <td class="num" x-text="fmtNum(sessionStat(run.key, s.session_id, 'kills'))"></td>
+                                             <td class="num" x-text="fmtNum(sessionStat(run.key, s.session_id, 'deaths'))"></td>
+                                             <td class="num" x-text="fmtNum(sessionStat(run.key, s.session_id, 'level_ups'))"></td>
+                                             <td class="num" x-text="`${sessionStat(run.key, s.session_id, 'quests_turned_in') ?? '—'}/${sessionStat(run.key, s.session_id, 'quests_accepted') ?? '—'}`"></td>
+                                             <td class="num" x-text="fmtNum(sessionStat(run.key, s.session_id, 'spell_casts'))"></td>
+                                             <td class="num" x-text="fmtNum(sessionStat(run.key, s.session_id, 'jumps'))"></td>
+                                             <td class="num" x-text="fmtDistance(sessionStat(run.key, s.session_id, 'distance'))"></td>
+                                             <td class="dim small" x-text="sessionTopZones(run.key, s.session_id)"></td>
+                                             <td class="num" x-text="fmtNum(s.poll_rows)"></td>
+                                             <td class="num" x-text="fmtNum(s.event_rows)"></td>
+                                             <td class="num" x-text="fmtNum(s.cleu_rows)"></td>
+                                             <td class="dim" x-text="s.client_build ?? '?'"></td>
+                                         </tr>
+                                     </template>
+                                 </tbody>
+
+                                 </table>
+                                 <div class="dim small" x-show="!runPolls[run.key]" style="padding:6px 0;">
+                                      Detailed per-session stats load when the character is expanded.
+                                 </div>
+                             </div>
+                             <div class="efficiency-legend">
+                                 <div class="legend-section">Efficiency Scale (XP/hr)</div>
+                                 <div class="efficiency-gradient"></div>
+                                 <div class="efficiency-labels">
+                                     <span>10k</span>
+                                     <span>100k</span>
+                                 </div>
+                             </div>
+                         </div>
+                     </details>
+
+                </div>
+            </div>
+        </template>
+     <div x-show="loaded && snap.runs.length === 0" class="dim empty">
+            No sessions yet. Play a bit and /reload to flush SavedVariables.
+        </div>
+    </section>
+</body>
+</html>

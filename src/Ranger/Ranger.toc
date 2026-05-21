@@ -1,0 +1,8 @@
+## Interface: 20505
+## Title: Ranger
+## Author: thot
+## Notes: Sidecar to Lumberjack — captures localized names for spell/item IDs encountered during play. Account-wide; names are locale-bound to the client account.
+## Version: 0.1
+## SavedVariables: RangerDB
+
+Ranger.lua
