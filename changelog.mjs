@@ -51,7 +51,7 @@ const date    = new Date().toISOString().slice(0, 10);
 
 // Subject line from the annotated tag message.
 const tagline = currentTag
-    ? git(['tag', '-l', '--format=%(contents:subject)', currentTag])
+    ? git(['tag', '-l', '--format=%(contents)', currentTag])
     : null;
 
 // ── Collect commits ───────────────────────────────────────────────────────────
@@ -102,11 +102,12 @@ const dryRun = process.argv.includes('--dry-run');
 const write  = process.argv.includes('--write') || process.env.CHANGELOG_WRITE === '1';
 
 if (dryRun || !write) {
-    if (!write) console.log(C.dim + '  Run with --write to update CHANGELOG.md\n' + C.reset);
-    process.exit(0);
+  if (!write) console.log(C.dim + '  Run with --write to update CHANGELOG.md\n' + C.reset);
+  process.exit(0);
 }
 
-const headline = tagline ? `\n${tagline}\n\n` : '\n';
+const writtenSinceLabel = `(${commits.length} commits since last release)` 
+const headline = tagline ? `\n\n-----------------\n${tagline}\n-----------------\n\n## Commit History\n${writtenSinceLabel}\n` : '\n\n---\n\n';
 const bullets  = commits.map(({ subject, hash }) => `- ${subject}${hash ? ` (${hash})` : ''}`).join('\n') || '- (no commits)';
 const section  = `## ${version} — ${date}${headline}${bullets}\n`;
 

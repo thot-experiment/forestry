@@ -50,7 +50,7 @@ function copyMapTiles(src, dest) {
 
 async function build({ compress = false, noDeps = false, clean = false } = {}) {
   const suffix = noDeps ? '-no-deps' : '';
-  const DIST_DIR = `dist/forestry-v${VERSION}${suffix}`;
+  const DIST_DIR = `dist/forestry-${VERSION}${suffix}`;
   const DIST_PATH = path.resolve(DIST_DIR);
   const ZIP_PATH = `${DIST_DIR}.zip`;
 
@@ -99,7 +99,7 @@ async function build({ compress = false, noDeps = false, clean = false } = {}) {
   fs.chmodSync(shPath, 0o755);
 
   // 8. Copy README.txt + API.md + CHANGELOG.md
-  fs.copyFileSync('USER_README.md', path.join(DIST_PATH, 'README.txt'));
+  fs.copyFileSync('USER_README.md', path.join(DIST_PATH, 'README.md'));
   fs.copyFileSync('API.md', path.join(DIST_PATH, 'API.md'));
   if (fs.existsSync('CHANGELOG.md')) fs.copyFileSync('CHANGELOG.md', path.join(DIST_PATH, 'CHANGELOG.md'));
 
