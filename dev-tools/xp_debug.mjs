@@ -5,8 +5,8 @@
 // a single-step XP gain looks anomalous and a tail of the last N minutes.
 //
 // Usage:
-//   node src/Sawmill/xp_debug.mjs [char_name_fragment] [tail_minutes]
-//   node src/Sawmill/xp_debug.mjs Wran 20
+//   node dev-tools/xp_debug.mjs [char_name_fragment] [tail_minutes]
+//   node dev-tools/xp_debug.mjs Wran 20
 //
 // Output sections:
 //   SESSIONS         — session ids, time range, row count
